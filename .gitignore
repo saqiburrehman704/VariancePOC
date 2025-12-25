@@ -1,0 +1,13 @@
+# model weights / local models
+models/
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+
+# caches
+.cache/
+**/.cache/
+__pycache__/
+*.pyc
