@@ -40,7 +40,6 @@ def init_model() -> None:
     model = Dinov2Model.from_pretrained(
         MODEL_ID,
         torch_dtype=torch_dtype,
-        low_cpu_mem_usage=True,
     ).to(device).eval()
 
 
