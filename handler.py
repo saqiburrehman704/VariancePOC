@@ -24,24 +24,6 @@ IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(1,
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = None
 
-def init_model() -> None:
-    global model
-    if model is not None:
-        return
-
-    torch.backends.cudnn.benchmark = True
-    try:
-        torch.set_float32_matmul_precision("high")
-    except Exception:
-        pass
-
-    torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
-    model = Dinov2Model.from_pretrained(
-        MODEL_ID,
-        torch_dtype=torch_dtype,
-        low_cpu_mem_usage=True,
-    ).to(device).eval()
-
 def preprocess_square(img: Image.Image, size: int = 512, crop_mode: str = "stretch") -> torch.Tensor:
     img = img.convert("RGB")
 
@@ -124,3 +106,26 @@ def embed(req: EmbedRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding failed: {e}")
+    
+def init_model() -> None:
+    global model
+    if model is not None:
+        return
+
+    torch.backends.cudnn.benchmark = True
+    try:
+        torch.set_float32_matmul_precision("high")
+    except Exception:
+        pass
+
+    torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
+    model = Dinov2Model.from_pretrained(
+        MODEL_ID,
+        torch_dtype=torch_dtype,
+        low_cpu_mem_usage=True,
+    ).to(device).eval()
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", "80"))  # RunPod LB often uses 80
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

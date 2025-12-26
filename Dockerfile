@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY handler.py /app/handler.py
 
-CMD ["python", "-u", "/app/handler.py"]
+CMD ["bash", "-lc", "uvicorn handler:app --host 0.0.0.0 --port ${PORT:-80}"]
