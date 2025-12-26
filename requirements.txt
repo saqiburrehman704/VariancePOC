@@ -3,4 +3,7 @@ huggingface_hub==0.23.4
 safetensors
 pillow
 numpy
-runpod
+
+fastapi
+uvicorn[standard]
+pydantic
