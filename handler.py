@@ -10,7 +10,7 @@ from transformers import Dinov2Model
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-# --- HF cache (Runpod volume if mounted) ---
+# ---- HF cache ----
 HF_BASE = "/runpod-volume/hf" if os.path.exists("/runpod-volume") else "/tmp/hf"
 os.environ.setdefault("HF_HOME", HF_BASE)
 os.environ.setdefault("TRANSFORMERS_CACHE", os.path.join(HF_BASE, "transformers"))
@@ -23,6 +23,26 @@ IMAGENET_STD  = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32).view(1,
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = None
+
+
+def init_model() -> None:
+    global model
+    if model is not None:
+        return
+
+    torch.backends.cudnn.benchmark = True
+    try:
+        torch.set_float32_matmul_precision("high")
+    except Exception:
+        pass
+
+    torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
+    model = Dinov2Model.from_pretrained(
+        MODEL_ID,
+        torch_dtype=torch_dtype,
+        low_cpu_mem_usage=True,
+    ).to(device).eval()
+
 
 def preprocess_square(img: Image.Image, size: int = 512, crop_mode: str = "stretch") -> torch.Tensor:
     img = img.convert("RGB")
@@ -43,8 +63,10 @@ def preprocess_square(img: Image.Image, size: int = 512, crop_mode: str = "stret
     x = (x.unsqueeze(0) - IMAGENET_MEAN) / IMAGENET_STD
     return x.squeeze(0)
 
+
 def _decode_b64_to_pil(b64: str) -> Image.Image:
     return Image.open(io.BytesIO(base64.b64decode(b64)))
+
 
 def _embed_batch(images_b64: List[str], size: int, crop_mode: str) -> torch.Tensor:
     tensors = []
@@ -61,8 +83,10 @@ def _embed_batch(images_b64: List[str], size: int, crop_mode: str) -> torch.Tens
 
     return emb.float().detach().cpu()
 
-# --------- FastAPI ---------
+
+# -------- FastAPI app --------
 app = FastAPI()
+
 
 class EmbedRequest(BaseModel):
     image_b64: Optional[str] = None
@@ -70,16 +94,20 @@ class EmbedRequest(BaseModel):
     size: int = 512
     crop_mode: str = "stretch"
 
+
 @app.get("/ping")
 def ping():
     return {"status": "ok"}
 
+
 @app.post("/embed")
 def embed(req: EmbedRequest):
-    init_model()
-
+    # validate first (fast)
     if not req.image_b64 and not req.images_b64:
         raise HTTPException(status_code=400, detail="Provide 'image_b64' or 'images_b64'.")
+
+    # load model once (slow)
+    init_model()
 
     try:
         if req.images_b64 is not None:
@@ -106,26 +134,3 @@ def embed(req: EmbedRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Embedding failed: {e}")
-    
-def init_model() -> None:
-    global model
-    if model is not None:
-        return
-
-    torch.backends.cudnn.benchmark = True
-    try:
-        torch.set_float32_matmul_precision("high")
-    except Exception:
-        pass
-
-    torch_dtype = torch.float16 if device.type == "cuda" else torch.float32
-    model = Dinov2Model.from_pretrained(
-        MODEL_ID,
-        torch_dtype=torch_dtype,
-        low_cpu_mem_usage=True,
-    ).to(device).eval()
-
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", "80"))  # RunPod LB often uses 80
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
